@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="dark">
+  <title>SBU PIK - Kamera Absensi</title>
+
+  <style>
+    :root {
+      --navy: #073b67;
+      --blue: #078db5;
+      --teal: #00a49a;
+      --text: #f8fafc;
+      --muted: #cbd5e1;
+      --danger: #ffb4ab;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      min-height: 100%;
+    }
+
+    body {
+      min-height: 100vh;
+      font-family: Arial, Helvetica, sans-serif;
+      background:
+        radial-gradient(circle at 88% 8%, rgba(7,153,200,.28), transparent 34%),
+        radial-gradient(circle at 8% 90%, rgba(0,164,154,.20), transparent 30%),
+        linear-gradient(145deg, #041f38 0%, #063d67 55%, #006f97 100%);
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+    }
+
+    .camera-app {
+      width: min(470px, 100%);
+      padding: 22px;
+      border-radius: 18px;
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.16);
+      box-shadow: 0 30px 70px rgba(0,0,0,.26);
+      backdrop-filter: blur(12px);
+    }
+
+    .brand {
+      text-align: center;
+      margin-bottom: 17px;
+    }
+
+    .brand-label {
+      color: #83d8dc;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1.8px;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin-top: 6px;
+      font-size: 23px;
+      line-height: 1.2;
+    }
+
+    .subtitle {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .camera-frame {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 3 / 4;
+      overflow: hidden;
+      border-radius: 14px;
+      background: #071828;
+      border: 1px solid rgba(255,255,255,.18);
+    }
+
+    video,
+    canvas,
+    .photo-preview {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: cover;
+    }
+
+    video {
+      transform: scaleX(-1);
+      background: #071828;
+    }
+
+    canvas,
+    .photo-preview {
+      display: none;
+    }
+
+    .state {
+      min-height: 36px;
+      margin-top: 10px;
+      color: var(--muted);
+      font-size: 10.5px;
+      line-height: 1.5;
+      text-align: center;
+    }
+
+    .gps {
+      display: none;
+      margin-top: 8px;
+      padding: 10px 12px;
+      border-radius: 9px;
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.12);
+      color: #dce7f1;
+      font-size: 10px;
+      line-height: 1.6;
+    }
+
+    .gps.show { display: block; }
+
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 9px;
+      margin-top: 13px;
+    }
+
+    button {
+      height: 43px;
+      border: 0;
+      border-radius: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .secondary {
+      background: rgba(255,255,255,.10);
+      border: 1px solid rgba(255,255,255,.17);
+      color: #e2e8f0;
+    }
+
+    .primary {
+      color: #fff;
+      background: linear-gradient(100deg, #063b67, #0799c8);
+    }
+
+    button:disabled {
+      opacity: .55;
+      cursor: wait;
+    }
+
+    .error {
+      min-height: 20px;
+      margin-top: 10px;
+      color: var(--danger);
+      font-size: 10.5px;
+      line-height: 1.5;
+      text-align: center;
+    }
+
+    @media (max-width: 520px) {
+      body { padding: 10px; }
+      .camera-app { padding: 16px; border-radius: 15px; }
+      h1 { font-size: 21px; }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="camera-app">
+
+    <header class="brand">
+      <div class="brand-label">SBU PIK</div>
+      <h1>Foto Absensi</h1>
+      <p class="subtitle">
+        Posisikan wajah dengan jelas. Kamera dan GPS akan digunakan
+        untuk bukti kehadiran.
+      </p>
+    </header>
+
+    <section class="camera-frame">
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="canvas"></canvas>
+      <img id="photoPreview" class="photo-preview" alt="Foto absensi">
+    </section>
+
+    <div class="state" id="state">
+      Menyiapkan kamera...
+    </div>
+
+    <div class="gps" id="gps"></div>
+
+    <div class="error" id="error"></div>
+
+    <div class="actions">
+      <button class="secondary" id="cancelButton" type="button">
+        Batal
+      </button>
+
+      <button class="primary" id="captureButton" type="button" disabled>
+        Ambil Foto
+      </button>
+
+      <button class="secondary" id="retakeButton" type="button" style="display:none">
+        Foto Ulang
+      </button>
+
+      <button class="primary" id="confirmButton" type="button" style="display:none">
+        Konfirmasi Absen
+      </button>
+    </div>
+
+  </main>
+
+  <script>
+    const token =
+      new URLSearchParams(location.search).get('token') || '';
+
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const photoPreview = document.getElementById('photoPreview');
+    const state = document.getElementById('state');
+    const gpsBox = document.getElementById('gps');
+    const errorBox = document.getElementById('error');
+
+    const cancelButton = document.getElementById('cancelButton');
+    const captureButton = document.getElementById('captureButton');
+    const retakeButton = document.getElementById('retakeButton');
+    const confirmButton = document.getElementById('confirmButton');
+
+    let stream = null;
+    let photoDataUrl = null;
+    let latitude = null;
+    let longitude = null;
+
+    function setError(text) {
+      errorBox.textContent = text || '';
+    }
+
+    function stopCamera() {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        stream = null;
+      }
+
+      video.srcObject = null;
+    }
+
+    async function startCamera() {
+      setError('');
+
+      if (!window.isSecureContext) {
+        setError(
+          'Halaman kamera harus dibuka melalui HTTPS.'
+        );
+        state.textContent = 'Kamera tidak dapat digunakan.';
+        return;
+      }
+
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setError(
+          'Browser tidak mendukung kamera live.'
+        );
+        state.textContent = 'Kamera tidak tersedia.';
+        return;
+      }
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: 'user' },
+            width: { ideal: 720 },
+            height: { ideal: 960 }
+          },
+          audio: false
+        });
+
+        video.srcObject = stream;
+        await video.play();
+
+        captureButton.disabled = false;
+
+        state.textContent =
+          'Kamera aktif. Posisikan wajah dengan jelas, lalu klik Ambil Foto.';
+
+        startLocation();
+      } catch (error) {
+        if (error && error.name === 'NotAllowedError') {
+          setError(
+            'Akses kamera ditolak. Izinkan kamera pada halaman ini, lalu muat ulang.'
+          );
+        } else if (error && error.name === 'NotFoundError') {
+          setError(
+            'Kamera tidak ditemukan pada perangkat.'
+          );
+        } else {
+          setError(
+            'Kamera gagal dibuka: ' +
+            (error && error.message ? error.message : 'unknown error')
+          );
+        }
+
+        state.textContent =
+          'Kamera belum berhasil diaktifkan.';
+      }
+    }
+
+    function startLocation() {
+      if (!navigator.geolocation) {
+        state.textContent =
+          'Kamera aktif, tetapi GPS tidak didukung browser.';
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        position => {
+          latitude = position.coords.latitude;
+          longitude = position.coords.longitude;
+
+          gpsBox.classList.add('show');
+          gpsBox.innerHTML =
+            '<strong>GPS siap</strong><br>' +
+            'Latitude: ' + latitude.toFixed(6) + '<br>' +
+            'Longitude: ' + longitude.toFixed(6);
+        },
+        error => {
+          if (error.code === 1) {
+            setError(
+              'Akses GPS ditolak. Izinkan Location pada halaman kamera.'
+            );
+          } else if (error.code === 2) {
+            setError('Lokasi tidak tersedia.');
+          } else {
+            setError('Pengambilan lokasi terlalu lama.');
+          }
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 0
+        }
+      );
+    }
+
+    function capturePhoto() {
+      setError('');
+
+      if (!video.videoWidth || !video.videoHeight) {
+        setError('Kamera belum siap.');
+        return;
+      }
+
+      const maxWidth = 720;
+      const scale =
+        Math.min(1, maxWidth / video.videoWidth);
+
+      canvas.width =
+        Math.round(video.videoWidth * scale);
+
+      canvas.height =
+        Math.round(video.videoHeight * scale);
+
+      const ctx =
+        canvas.getContext('2d');
+
+      ctx.save();
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(
+        video,
+        0,
+        0,
+        canvas.width,
+        canvas.height
+      );
+      ctx.restore();
+
+      photoDataUrl =
+        canvas.toDataURL('image/jpeg', 0.80);
+
+      photoPreview.src = photoDataUrl;
+      photoPreview.style.display = 'block';
+      video.style.display = 'none';
+
+      captureButton.style.display = 'none';
+      retakeButton.style.display = 'block';
+      confirmButton.style.display = 'block';
+
+      state.textContent =
+        'Foto sudah diambil. Periksa foto sebelum konfirmasi.';
+
+      stopCamera();
+    }
+
+    function retakePhoto() {
+      photoDataUrl = null;
+      photoPreview.style.display = 'none';
+      video.style.display = 'block';
+
+      retakeButton.style.display = 'none';
+      confirmButton.style.display = 'none';
+      captureButton.style.display = 'block';
+      captureButton.disabled = true;
+
+      startCamera();
+    }
+
+    function confirmAttendance() {
+      if (!photoDataUrl) {
+        setError('Foto belum diambil.');
+        return;
+      }
+
+      if (
+        !Number.isFinite(latitude) ||
+        !Number.isFinite(longitude)
+      ) {
+        setError(
+          'GPS belum tersedia. Tunggu GPS siap lalu coba lagi.'
+        );
+        startLocation();
+        return;
+      }
+
+      confirmButton.disabled = true;
+      retakeButton.disabled = true;
+      cancelButton.disabled = true;
+
+      state.textContent =
+        'Mengirim foto dan lokasi ke aplikasi...';
+
+      window.opener.postMessage(
+        {
+          source: 'sbu-pik-live-camera',
+          type: 'attendance-photo',
+          token: token,
+          photoDataUrl: photoDataUrl,
+          latitude: latitude,
+          longitude: longitude
+        },
+        '*'
+      );
+
+      setTimeout(() => {
+        state.textContent =
+          'Data dikirim. Menutup kamera...';
+
+        stopCamera();
+        window.close();
+      }, 600);
+    }
+
+    cancelButton.addEventListener('click', () => {
+      window.opener.postMessage(
+        {
+          source: 'sbu-pik-live-camera',
+          type: 'camera-cancelled',
+          token: token
+        },
+        '*'
+      );
+
+      stopCamera();
+      window.close();
+    });
+
+    captureButton.addEventListener('click', capturePhoto);
+    retakeButton.addEventListener('click', retakePhoto);
+    confirmButton.addEventListener('click', confirmAttendance);
+
+    window.addEventListener('beforeunload', stopCamera);
+
+    startCamera();
+  </script>
+</body>
+</html>
